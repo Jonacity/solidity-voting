@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
+
 pragma solidity 0.8.13;
+
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract Voting is Ownable {
@@ -11,26 +13,24 @@ contract Voting is Ownable {
         VotingSessionEnded,
         VotesTallied
     }
-
     struct Voter {
         bool isRegistered;
         bool hasVoted;
         uint votedProposalId;
     }
-
     struct Proposal {
         uint id;
         string description;
         uint voteCount;
     }
 
-    uint private lastProposalId;
-    uint private winningProposalId;
+    uint lastProposalId;
+    uint winningProposalId;
+    address[] voters;
+    mapping(address => Voter) whitelist;
+    mapping(uint => Proposal) proposals;
+    Proposal[] proposalsList;
     WorkflowStatus public status;
-    mapping(address => Voter) public whitelist;
-    address[] public voters;
-    mapping(uint => Proposal) public proposals;
-    Proposal[] public proposalsList;
 
     event VoterRegistered(address voterAddress); 
     event WorkflowStatusChange(WorkflowStatus previousStatus, WorkflowStatus newStatus);
@@ -42,6 +42,11 @@ contract Voting is Ownable {
 
     modifier isRegistered {
         require(whitelist[msg.sender].isRegistered == true, "You are not registred");
+        _;
+    }
+
+    modifier isValidId(uint _id) {
+        require(_id > 0 && _id <= lastProposalId, "Invalid proposal id");
         _;
     }
 
@@ -70,6 +75,10 @@ contract Voting is Ownable {
             status = _newStatus;
     }
 
+    /**
+      * This function is called by the admin to follow the voting workflow
+      * @dev The status variable tracks the current step
+      */
     function proceedToNextStep() external onlyOwner returns(string memory message) {
         if (status == WorkflowStatus.RegisteringVoters) {
             setNewStatus(WorkflowStatus.ProposalsRegistrationStarted);
@@ -109,9 +118,7 @@ contract Voting is Ownable {
         return true;
     }
 
-    function removeProposal(uint _proposalId) external onlyOwner canRemoveProposal returns(bool) {
-        require(_proposalId > 0 && _proposalId <= lastProposalId, "Invalid proposal id");
-
+    function removeProposal(uint _proposalId) external onlyOwner canRemoveProposal isValidId(_proposalId) returns(bool) {
         emit ProposalRemoved(_proposalId);
         delete proposalsList[_proposalId - 1];
         delete proposals[_proposalId];
@@ -122,10 +129,15 @@ contract Voting is Ownable {
         return proposalsList;
     }
 
-    function voteFor(uint _proposalId) external isRegistered {
+    function showVote(address _address) external view isRegistered isVoteEnded returns(string memory) {
+        require(whitelist[_address].votedProposalId != 0, "This user has not voted");
+
+        return proposals[whitelist[_address].votedProposalId].description;
+    }
+
+    function voteFor(uint _proposalId) external isRegistered isValidId(_proposalId) {
         require(status == WorkflowStatus.VotingSessionStarted, "You cannot vote for now");
         require(whitelist[msg.sender].hasVoted == false, "You have already voted");
-        require(_proposalId > 0 && _proposalId <= lastProposalId, "Invalid proposal id");
 
         Voter storage sender = whitelist[msg.sender];
         sender.hasVoted = true;
