@@ -81,15 +81,21 @@ contract Voting is Ownable {
       */
     function proceedToNextStep() external onlyOwner returns(string memory message) {
         if (status == WorkflowStatus.RegisteringVoters) {
+            require(voters.length > 0, "No voters registrered");
+
             setNewStatus(WorkflowStatus.ProposalsRegistrationStarted);
             return message = "Start proposals registration...";
         } else if (status == WorkflowStatus.ProposalsRegistrationStarted) {
+            require(proposalsList.length > 0, "No proposals registred");
+
             setNewStatus(WorkflowStatus.ProposalsRegistrationEnded);
             return message = "Proposals registration ended";
         } else if (status == WorkflowStatus.ProposalsRegistrationEnded) {
             setNewStatus(WorkflowStatus.VotingSessionStarted);
             return message = "Start voting...";
         } else if (status == WorkflowStatus.VotingSessionStarted) {
+            require(hasOneVote() == true, "No votes during the session");
+
             setNewStatus(WorkflowStatus.VotingSessionEnded);
             return message = "Voting session ended";
         } else if (status == WorkflowStatus.VotingSessionEnded) {
@@ -97,7 +103,19 @@ contract Voting is Ownable {
             setNewStatus(WorkflowStatus.VotesTallied);
             emit Winned(proposals[winningProposalId].description);
             return message = "Votes tallied";
+        } else if (status == WorkflowStatus.VotesTallied) {
+            resetVote();
+            return message = "Vote reseted";
         }
+    }
+
+    function hasOneVote() internal view returns(bool) {
+        for (uint n = 0; n < proposalsList.length; n ++) {
+            if (proposalsList[n].voteCount > 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function addProposal(string memory _description) external isRegistered returns(bool) {
@@ -146,6 +164,7 @@ contract Voting is Ownable {
         for (uint n = 0; n < proposalsList.length; n ++) {
             if (proposalsList[n].id == _proposalId) {
                 proposalsList[n].voteCount ++;
+                break;
             }
         }
         emit Voted(msg.sender, _proposalId);
@@ -165,7 +184,7 @@ contract Voting is Ownable {
         return winnerName = proposals[winningProposalId].description;
     }
 
-    function resetVote() external onlyOwner isVoteEnded returns(bool) {
+    function resetVote() public onlyOwner returns(bool) {
         for (uint n = 0; n < voters.length; n ++) {
             delete whitelist[voters[n]];
         }
