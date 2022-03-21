@@ -100,6 +100,8 @@ contract Voting is Ownable {
             return message = "Voting session ended";
         } else if (status == WorkflowStatus.VotingSessionEnded) {
             setWinningProposalId();
+            require(areMultipleWinners() == false, "There are multiple winners, you can reset the vote");
+
             setNewStatus(WorkflowStatus.VotesTallied);
             emit Winned(proposals[winningProposalId].description);
             return message = "Votes tallied";
@@ -178,6 +180,20 @@ contract Voting is Ownable {
                 winningProposalId = proposalsList[n].id;
             }
         }
+    }
+
+    function areMultipleWinners() internal view returns(bool) {
+        if (proposalsList.length < 2) {
+            return false;
+        }
+        uint winnerCount;
+        uint winningVoteCount = proposals[winningProposalId].voteCount;
+        for (uint n = 0; n < proposalsList.length; n ++) {
+            if (proposalsList[n].voteCount == winningVoteCount) {
+                winnerCount ++;
+            }
+        }
+        return winnerCount > 1;
     }
 
     function getWinner() external view isVoteEnded returns(string memory winnerName) {
