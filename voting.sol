@@ -65,7 +65,7 @@ contract Voting is Ownable {
         require(status == WorkflowStatus.RegisteringVoters, "You cannot registrer voters");
         require(whitelist[_address].isRegistered == false, "Voter already registred");
 
-        whitelist[_address] = Voter(true, false, 0);
+        whitelist[_address].isRegistered = true;
         voters.push(_address);
         emit VoterRegistered(_address);
         return true;
@@ -87,6 +87,7 @@ contract Voting is Ownable {
             setNewStatus(WorkflowStatus.ProposalsRegistrationStarted);
         } else if (status == WorkflowStatus.ProposalsRegistrationStarted) {
             require(proposalsList.length > 0, "No proposals registred");
+            require(proposalsList.length > 1, "Need at least 2 proposals to vote");
 
             setNewStatus(WorkflowStatus.ProposalsRegistrationEnded);
         } else if (status == WorkflowStatus.ProposalsRegistrationEnded) {
@@ -170,9 +171,6 @@ contract Voting is Ownable {
     }
 
     function areMultipleWinners() internal returns(bool) {
-        if (proposalsList.length < 2) {
-            return false;
-        }
         uint winningVoteCount = proposals[winningProposalId].voteCount;
         for (uint n = 0; n < proposalsList.length; n ++) {
             if (proposalsList[n].voteCount == winningVoteCount) {
@@ -195,6 +193,7 @@ contract Voting is Ownable {
         }
         delete voters;
         delete proposalsList;
+        delete winningProposalIds;
         lastProposalId = 0;
         winningProposalId = 0;
         status = WorkflowStatus.RegisteringVoters;
