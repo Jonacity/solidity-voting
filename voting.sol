@@ -3,6 +3,7 @@
 pragma solidity 0.8.13;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
 
 contract Voting is Ownable {
     enum WorkflowStatus {
@@ -26,16 +27,16 @@ contract Voting is Ownable {
 
     uint lastProposalId;
     uint winningProposalId;
+    uint[] winningProposalIds;
     address[] voters;
     mapping(address => Voter) whitelist;
     mapping(uint => Proposal) proposals;
     Proposal[] proposalsList;
     WorkflowStatus public status;
 
-    event VoterRegistered(address voterAddress); 
+    event VoterRegistered(address voterAddress);
     event WorkflowStatusChange(WorkflowStatus previousStatus, WorkflowStatus newStatus);
     event ProposalRegistered(uint proposalId);
-    event ProposalRemoved(uint proposalId);
     event Voted (address voter, uint proposalId);
     event Winned(string description);
     event ResetVote(uint date);
@@ -63,7 +64,7 @@ contract Voting is Ownable {
     function registrerVoter(address _address) external onlyOwner returns(bool) {
         require(status == WorkflowStatus.RegisteringVoters, "You cannot registrer voters");
         require(whitelist[_address].isRegistered == false, "Voter already registred");
-    
+
         whitelist[_address] = Voter(true, false, 0);
         voters.push(_address);
         emit VoterRegistered(_address);
@@ -71,43 +72,37 @@ contract Voting is Ownable {
     }
 
     function setNewStatus(WorkflowStatus _newStatus) internal {
-            emit WorkflowStatusChange(status, _newStatus);
-            status = _newStatus;
+        status = _newStatus;
+        emit WorkflowStatusChange(status, _newStatus);
     }
 
     /**
       * This function is called by the admin to follow the voting workflow
       * @dev The status variable tracks the current step
       */
-    function proceedToNextStep() external onlyOwner returns(string memory message) {
+    function goToNextStep() external onlyOwner {
         if (status == WorkflowStatus.RegisteringVoters) {
             require(voters.length > 0, "No voters registrered");
 
             setNewStatus(WorkflowStatus.ProposalsRegistrationStarted);
-            return message = "Start proposals registration...";
         } else if (status == WorkflowStatus.ProposalsRegistrationStarted) {
             require(proposalsList.length > 0, "No proposals registred");
 
             setNewStatus(WorkflowStatus.ProposalsRegistrationEnded);
-            return message = "Proposals registration ended";
         } else if (status == WorkflowStatus.ProposalsRegistrationEnded) {
             setNewStatus(WorkflowStatus.VotingSessionStarted);
-            return message = "Start voting...";
         } else if (status == WorkflowStatus.VotingSessionStarted) {
             require(hasOneVote() == true, "No votes during the session");
 
             setNewStatus(WorkflowStatus.VotingSessionEnded);
-            return message = "Voting session ended";
         } else if (status == WorkflowStatus.VotingSessionEnded) {
             setWinningProposalId();
-            require(areMultipleWinners() == false, "There are multiple winners, you can reset the vote");
+            require(areMultipleWinners() == false, string(bytes.concat(bytes("There are "), bytes(Strings.toString(winningProposalIds.length)), bytes(" winners"))));
 
             setNewStatus(WorkflowStatus.VotesTallied);
             emit Winned(proposals[winningProposalId].description);
-            return message = "Votes tallied";
         } else if (status == WorkflowStatus.VotesTallied) {
             resetVote();
-            return message = "Vote reseted";
         }
     }
 
@@ -120,29 +115,20 @@ contract Voting is Ownable {
         return false;
     }
 
-    function addProposal(string memory _description) external isRegistered returns(bool) {
+    function addProposal(string memory _description) external isRegistered {
         require(status == WorkflowStatus.ProposalsRegistrationStarted, "You cannot registrer proposals");
-    
+        require(keccak256(abi.encode(_description)) != keccak256(abi.encode("")), "You cannot add an empty proposal");
+
         lastProposalId ++;
         Proposal memory proposal = Proposal(lastProposalId, _description, 0);
         proposalsList.push(proposal);
         proposals[lastProposalId] = proposal;
         emit ProposalRegistered(lastProposalId);
-        return true;
     }
 
-    function removeLastProposal() external onlyOwner canRemoveProposal returns(bool) {
-        emit ProposalRemoved(lastProposalId);
+    function removeLastProposal() external onlyOwner canRemoveProposal {
         delete proposals[lastProposalId];
         proposalsList.pop();
-        return true;
-    }
-
-    function removeProposal(uint _proposalId) external onlyOwner canRemoveProposal isValidId(_proposalId) returns(bool) {
-        emit ProposalRemoved(_proposalId);
-        delete proposalsList[_proposalId - 1];
-        delete proposals[_proposalId];
-        return true;
     }
 
     function listProposals() external view returns(Proposal[] memory) {
@@ -159,9 +145,8 @@ contract Voting is Ownable {
         require(status == WorkflowStatus.VotingSessionStarted, "You cannot vote for now");
         require(whitelist[msg.sender].hasVoted == false, "You have already voted");
 
-        Voter storage sender = whitelist[msg.sender];
-        sender.hasVoted = true;
-        sender.votedProposalId = _proposalId;
+        whitelist[msg.sender].hasVoted = true;
+        whitelist[msg.sender].votedProposalId = _proposalId;
         proposals[_proposalId].voteCount ++;
         for (uint n = 0; n < proposalsList.length; n ++) {
             if (proposalsList[n].id == _proposalId) {
@@ -174,26 +159,27 @@ contract Voting is Ownable {
 
     function setWinningProposalId() internal {
         uint winningVoteCount;
+        uint tempWinningProposalId;
         for (uint n = 0; n < proposalsList.length; n ++) {
             if (proposalsList[n].voteCount > winningVoteCount) {
                 winningVoteCount = proposalsList[n].voteCount;
-                winningProposalId = proposalsList[n].id;
+                tempWinningProposalId = proposalsList[n].id;
             }
         }
+        winningProposalId = tempWinningProposalId;
     }
 
-    function areMultipleWinners() internal view returns(bool) {
+    function areMultipleWinners() internal returns(bool) {
         if (proposalsList.length < 2) {
             return false;
         }
-        uint winnerCount;
         uint winningVoteCount = proposals[winningProposalId].voteCount;
         for (uint n = 0; n < proposalsList.length; n ++) {
             if (proposalsList[n].voteCount == winningVoteCount) {
-                winnerCount ++;
+                winningProposalIds.push(proposalsList[n].id);
             }
         }
-        return winnerCount > 1;
+        return winningProposalIds.length > 1;
     }
 
     function getWinner() external view isVoteEnded returns(string memory winnerName) {
